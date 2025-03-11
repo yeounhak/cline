@@ -1,10 +1,145 @@
-import { globby, Options } from "globby"
+import { fdir, PathsOutput } from "fdir"
 import os from "os"
 import * as path from "path"
 import { arePathsEqual } from "../../utils/path"
+import ignore from "ignore"
+import * as fs from "fs"
+
+// Default directories to ignore
+const DEFAULT_IGNORE_DIRS = [
+	"node_modules",
+	"__pycache__",
+	"env",
+	"venv",
+	"target/dependency",
+	"build/dependencies",
+	"dist",
+	"out",
+	"bundle",
+	"vendor",
+	"tmp",
+	"temp",
+	"deps",
+	"pkg",
+	"Pods",
+	".*", // Hidden directories
+]
+
+// Cache for directory checks to avoid repeated fs.statSync calls
+const directoryCache = new Map<string, boolean>()
+
+interface CrawlOptions {
+	limit: number
+	timeout: number
+	ignorePatterns: string[]
+	recursive: boolean
+}
+
+class FileScanner {
+	private ig: ReturnType<typeof ignore>
+	private results: Set<string>
+	private abortController: AbortController
+
+	constructor(ignorePatterns: string[]) {
+		this.ig = ignore().add(ignorePatterns)
+		this.results = new Set()
+		this.abortController = new AbortController()
+	}
+
+	private isDirectory(filePath: string): boolean {
+		if (directoryCache.has(filePath)) {
+			return directoryCache.get(filePath)!
+		}
+		try {
+			const isDir = fs.statSync(filePath).isDirectory()
+			directoryCache.set(filePath, isDir)
+			return isDir
+		} catch (error) {
+			directoryCache.set(filePath, false)
+			return false
+		}
+	}
+
+	private shouldIncludeFile(filePath: string, options: CrawlOptions): boolean {
+		if (this.results.size >= options.limit) {
+			return false
+		}
+
+		const relativePath = path.relative(path.dirname(filePath), filePath)
+		if (options.recursive && this.ig.ignores(relativePath)) {
+			return false
+		}
+
+		return true
+	}
+
+	private processFile(filePath: string, options: CrawlOptions): boolean {
+		if (!this.shouldIncludeFile(filePath, options)) {
+			return false
+		}
+
+		const normalizedPath = filePath.replace(/\\/g, "/")
+		const isDir = this.isDirectory(filePath)
+		const finalPath = isDir ? normalizedPath + "/" : normalizedPath
+
+		this.results.add(finalPath)
+		return true
+	}
+
+	private async crawlChunk(paths: string[], options: CrawlOptions): Promise<void> {
+		const promises = paths.map(async (filePath) => {
+			if (this.abortController.signal.aborted) {
+				return
+			}
+
+			const processed = this.processFile(filePath, options)
+			if (!processed) {
+				return
+			}
+
+			if (options.recursive && this.isDirectory(filePath)) {
+				const builder = new fdir().withFullPaths().withMaxDepth(1).crawl(filePath)
+
+				try {
+					const subFiles = await builder.withPromise()
+					await this.crawlChunk(subFiles, options)
+				} catch (error) {
+					console.warn(`Error scanning directory ${filePath}:`, error)
+				}
+			}
+		})
+
+		await Promise.all(promises)
+	}
+
+	public async scan(dirPath: string, options: CrawlOptions): Promise<[string[], boolean]> {
+		try {
+			const initialBuilder = new fdir().withFullPaths().withMaxDepth(1).crawl(dirPath)
+
+			const files = await initialBuilder.withPromise()
+
+			const timeoutPromise = new Promise<void>((_, reject) => {
+				setTimeout(() => {
+					this.abortController.abort()
+					reject(new Error("File scanning timeout"))
+				}, options.timeout)
+			})
+
+			await Promise.race([this.crawlChunk(files, options), timeoutPromise])
+		} catch (error) {
+			if (error instanceof Error && error.message !== "File scanning timeout") {
+				console.warn("Error during file scanning:", error)
+			}
+		}
+
+		const results = Array.from(this.results)
+		return [results, results.length >= options.limit]
+	}
+}
 
 export async function listFiles(dirPath: string, recursive: boolean, limit: number): Promise<[string[], boolean]> {
 	const absolutePath = path.resolve(dirPath)
+
 	// Do not allow listing files in root or home directory, which cline tends to want to do when the user's prompt is vague.
 	const root = process.platform === "win32" ? path.parse(absolutePath).root : "/"
 	const isRoot = arePathsEqual(absolutePath, root)
@@ -17,84 +152,27 @@ export async function listFiles(dirPath: string, recursive: boolean, limit: numb
 		return [[homeDir], false]
 	}
 
-	const dirsToIgnore = [
-		"node_modules",
-		"__pycache__",
-		"env",
-		"venv",
-		"target/dependency",
-		"build/dependencies",
-		"dist",
-		"out",
-		"bundle",
-		"vendor",
-		"tmp",
-		"temp",
-		"deps",
-		"pkg",
-		"Pods",
-		".*", // '!**/.*' excludes hidden directories, while '!**/.*/**' excludes only their contents. This way we are at least aware of the existence of hidden directories.
-	].map((dir) => `**/${dir}/**`)
+	// Initialize ignore patterns
+	const ignorePatterns = DEFAULT_IGNORE_DIRS.map((dir) => `**/${dir}/**`)
 
-	const options: Options = {
-		cwd: dirPath,
-		dot: true, // do not ignore hidden files/directories
-		absolute: true,
-		markDirectories: true, // Append a / on any directories matched (/ is used on windows as well, so dont use path.sep)
-		gitignore: recursive, // globby ignores any files that are gitignored
-		ignore: recursive ? dirsToIgnore : undefined, // just in case there is no gitignore, we ignore sensible defaults
-		onlyFiles: false, // true by default, false means it will list directories on their own too
-		suppressErrors: true,
-	}
-
-	// * globs all files in one dir, ** globs files in nested directories
-	const filePaths = recursive ? await globbyLevelByLevel(limit, options) : (await globby("*", options)).slice(0, limit)
-
-	return [filePaths, filePaths.length >= limit]
-}
-
-/*
-Breadth-first traversal of directory structure level by level up to a limit:
-   - Queue-based approach ensures proper breadth-first traversal
-   - Processes directory patterns level by level
-   - Captures a representative sample of the directory structure up to the limit
-   - Minimizes risk of missing deeply nested files
-
-- Notes:
-   - Relies on globby to mark directories with /
-   - Potential for loops if symbolic links reference back to parent (we could use followSymlinks: false but that may not be ideal for some projects and it's pointless if they're not using symlinks wrong)
-   - Timeout mechanism prevents infinite loops
-*/
-async function globbyLevelByLevel(limit: number, options?: Options) {
-	let results: Set<string> = new Set()
-	let queue: string[] = ["*"]
-
-	const globbingProcess = async () => {
-		while (queue.length > 0 && results.size < limit) {
-			const pattern = queue.shift()!
-			const filesAtLevel = await globby(pattern, options)
-
-			for (const file of filesAtLevel) {
-				if (results.size >= limit) {
-					break
-				}
-				results.add(file)
-				if (file.endsWith("/")) {
-					queue.push(`${file}*`)
-				}
+	// Add .gitignore patterns if recursive mode and .gitignore exists
+	if (recursive) {
+		const gitignorePath = path.join(dirPath, ".gitignore")
+		try {
+			if (fs.existsSync(gitignorePath)) {
+				const gitignoreContent = fs.readFileSync(gitignorePath, "utf8")
+				ignorePatterns.push(...gitignoreContent.split("\n"))
 			}
+		} catch (error) {
+			console.warn("Error reading .gitignore:", error)
 		}
-		return Array.from(results).slice(0, limit)
 	}
 
-	// Timeout after 10 seconds and return partial results
-	const timeoutPromise = new Promise<string[]>((_, reject) => {
-		setTimeout(() => reject(new Error("Globbing timeout")), 10_000)
+	const scanner = new FileScanner(ignorePatterns)
+	return scanner.scan(absolutePath, {
+		limit,
+		timeout: 10_000,
+		ignorePatterns,
+		recursive,
 	})
-	try {
-		return await Promise.race([globbingProcess(), timeoutPromise])
-	} catch (error) {
-		console.warn("Globbing timed out, returning partial results")
-		return Array.from(results)
-	}
 }
