@@ -1,4 +1,4 @@
-import { fdir, PathsOutput } from "fdir"
+import { fdir } from "fdir"
 import os from "os"
 import * as path from "path"
 import { arePathsEqual } from "../../utils/path"

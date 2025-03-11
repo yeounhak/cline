@@ -1,9 +1,10 @@
 import fs from "fs/promises"
-import { globby } from "globby"
 import * as path from "path"
 import simpleGit, { SimpleGit } from "simple-git"
 import { fileExistsAtPath } from "../../utils/fs"
 import { getLfsPatterns, writeExcludesFile } from "./CheckpointExclusions"
+
+import { fdir } from "fdir"
 
 interface CheckpointAddResult {
 	success: boolean
@@ -130,14 +131,18 @@ export class GitOperations {
 	 * @throws Error if renaming any .git directory fails
 	 */
 	public async renameNestedGitRepos(disable: boolean) {
-		// Find all .git directories that are not at the root level
-		const gitPaths = await globby("**/.git" + (disable ? "" : GIT_DISABLED_SUFFIX), {
-			cwd: this.cwd,
-			onlyDirectories: true,
-			ignore: [".git"], // Ignore root level .git
-			dot: true,
-			markDirectories: false,
-		})
+		// Newer fdir implementations for better performance than globby. Helps with extra large
+		// repos with many files and subdirectories.
+		const crawler = new fdir()
+			.withBasePath()
+			.withDirs()
+			.withMaxDepth(50)
+			.filter((path) => {
+				const basename = path.split("/").pop()
+				return basename === ".git" || basename === ".git_disabled"
+			})
+			.exclude((path) => path === ".git") // Exclude root .git
+		const gitPaths = await crawler.crawl(this.cwd).withPromise()
 
 		// For each nested .git directory, rename it based on operation
 		for (const gitPath of gitPaths) {
