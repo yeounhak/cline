@@ -288,7 +288,7 @@
 		"firebase": "^11.2.0",
 		"get-folder-size": "^5.0.0",
 		"globby": "^14.0.2",
-		"fdir":"6.4.3",
+		"fdir": "6.4.3",
 		"ignore": "^7.0.3",
 		"isbinaryfile": "^5.0.2",
 		"mammoth": "^1.8.0",
