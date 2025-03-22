@@ -6,14 +6,15 @@ import { Anthropic } from "@anthropic-ai/sdk"
 import OpenAI from "openai"
 import { OpenRouterErrorResponse } from "../providers/types"
 
-export async function createOpenRouterStream(
+export async function* streamOpenRouterFormatRequest(
 	client: OpenAI,
 	systemPrompt: string,
 	messages: Anthropic.Messages.MessageParam[],
 	model: { id: string; info: ModelInfo },
 	o3MiniReasoningEffort?: string,
 	thinkingBudgetTokens?: number,
-) {
+	openRouterProviderSorting?: string,
+): AsyncGenerator<ApiStreamChunk, undefined, unknown> {
 	// Convert Anthropic messages to OpenAI format
 	let openAiMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
 		{ role: "system", content: systemPrompt },
@@ -143,9 +144,51 @@ export async function createOpenRouterStream(
 		stream: true,
 		transforms: shouldApplyMiddleOutTransform ? ["middle-out"] : undefined,
 		include_reasoning: true,
+		stream_options: { include_usage: true },
 		...(model.id === "openai/o3-mini" ? { reasoning_effort: o3MiniReasoningEffort || "medium" } : {}),
 		...(reasoning ? { reasoning } : {}),
+		...(openRouterProviderSorting ? { provider: { sort: openRouterProviderSorting } } : {}),
 	})
 
-	return stream
+	// let genId: string | undefined
+	let didOutputUsage: boolean = false
+
+	for await (const chunk of stream) {
+		// openrouter returns an error object instead of the openai sdk throwing an error
+		if ("error" in chunk) {
+			const error = chunk.error as OpenRouterErrorResponse["error"]
+			console.error(`OpenRouter API Error: ${error?.code} - ${error?.message}`)
+			// Include metadata in the error message if available
+			const metadataStr = error.metadata ? `\nMetadata: ${JSON.stringify(error.metadata, null, 2)}` : ""
+			throw new Error(`OpenRouter API Error ${error.code}: ${error.message}${metadataStr}`)
+		}
+
+		if (chunk.usage && !didOutputUsage) {
+			yield {
+				type: "usage",
+				inputTokens: chunk.usage.prompt_tokens || 0,
+				outputTokens: chunk.usage.completion_tokens || 0,
+				// @ts-ignore-next-line
+				totalCost: chunk.usage.cost || 0,
+			}
+			didOutputUsage = true
+		}
+
+		const delta = chunk.choices[0]?.delta
+		if (delta?.content) {
+			yield {
+				type: "text",
+				text: delta.content,
+			}
+		}
+
+		// Reasoning tokens are returned separately from the content
+		if ("reasoning" in delta && delta.reasoning) {
+			yield {
+				type: "reasoning",
+				// @ts-ignore-next-line
+				reasoning: delta.reasoning,
+			}
+		}
+	}
 }
