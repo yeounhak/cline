@@ -175,8 +175,25 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 		this.mcpHub = undefined
 		this.accountService = undefined
 		this.conversationTelemetryService.shutdown()
+		await this.cleanupBrowserSession()
 		this.outputChannel.appendLine("Disposed all disposables")
 		ClineProvider.activeInstances.delete(this)
+	}
+
+	/**
+	 * Gracefully cleanup browser session when VSCode is closing
+	 */
+	async cleanupBrowserSession(): Promise<void> {
+		if (this.cline?.browserSession) {
+			try {
+				await this.cline.browserSession.closeBrowser()
+				this.outputChannel.appendLine("Browser session cleaned up")
+			} catch (error: unknown) {
+				const errorMessage = error instanceof Error ? error.message : String(error)
+				this.outputChannel.appendLine(`Error cleaning up browser session: ${errorMessage}`)
+				throw error // Re-throw to be handled by caller
+			}
+		}
 	}
 
 	// Auth methods

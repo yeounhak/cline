@@ -117,13 +117,13 @@ export class BrowserSession {
 			// Chrome-launcher's killAll only kills instances it launched
 			// We need to handle system Chrome processes separately
 			await this.killAllChromeBrowsers()
-			
+
 			// Wait a moment for Chrome to fully shut down
-			await new Promise(resolve => setTimeout(resolve, 500))
+			await new Promise((resolve) => setTimeout(resolve, 500))
 
 			// Remote connections are always non-headless
 			// Don't add headless flag for remote connections
-			
+
 			// Instead of using any default flags, use a minimal set to ensure session persistence
 			// This closely mimics running "google-chrome-stable --remote-debugging-port=9222" from the CLI
 			const chromeFlags = [
@@ -202,7 +202,7 @@ export class BrowserSession {
 		})
 		this.isConnectedToRemote = false
 	}
-	
+
 	/**
 	 * Kill all Chrome instances, including those not launched by chrome-launcher
 	 */
@@ -213,28 +213,28 @@ export class BrowserSession {
 		} catch (err: unknown) {
 			console.log("Error in chrome-launcher killAll:", err)
 		}
-		
+
 		// Then kill other Chrome instances using platform-specific commands
 		try {
-			if (process.platform === 'win32') {
+			if (process.platform === "win32") {
 				// Windows: Use taskkill to forcefully terminate Chrome processes
 				await new Promise<void>((resolve, reject) => {
-					const { exec } = require('child_process')
-					exec('taskkill /F /IM chrome.exe /T', (error: Error) => {
+					const { exec } = require("child_process")
+					exec("taskkill /F /IM chrome.exe /T", (error: Error) => {
 						// We don't reject on error because it's expected if no Chrome is running
 						resolve()
 					})
 				})
-			} else if (process.platform === 'darwin') {
+			} else if (process.platform === "darwin") {
 				// macOS: Use pkill to terminate Chrome processes
 				await new Promise<void>((resolve) => {
-					const { exec } = require('child_process')
+					const { exec } = require("child_process")
 					exec('pkill -x "Google Chrome"', () => resolve())
 				})
 			} else {
 				// Linux: Use pkill for Chrome and chromium
 				await new Promise<void>((resolve) => {
-					const { exec } = require('child_process')
+					const { exec } = require("child_process")
 					exec('pkill -f "chrome|chromium"', () => resolve())
 				})
 			}
@@ -327,21 +327,50 @@ export class BrowserSession {
 		)
 	}
 
+	/**
+	 * Gracefully close the browser session, handling both local and remote connections.
+	 * This ensures proper state saving and cleanup when VSCode is closed.
+	 */
 	async closeBrowser(): Promise<BrowserActionResult> {
-		if (this.browser || this.page) {
+		if (!this.browser && !this.page) {
+			return {}
+		}
+
+		try {
 			if (this.isConnectedToRemote && this.browser) {
-				// Close the page/tab first if it exists
+				// For remote connections, close pages first then disconnect
 				if (this.page) {
-					await this.page.close().catch(() => {})
+					// Give the page time to save any state
+					await new Promise((resolve) => setTimeout(resolve, 500))
+					await this.page.close().catch((err) => {
+						console.log("Error closing remote browser tab:", err)
+					})
 					console.log("closed remote browser tab...")
 				}
-				await this.browser.disconnect().catch(() => {})
+				await this.browser.disconnect().catch((err) => {
+					console.log("Error disconnecting from remote browser:", err)
+				})
 				console.log("disconnected from remote browser...")
 			} else {
-				await this.browser?.close().catch(() => {})
+				// For local browser, ensure graceful shutdown
+				if (this.page) {
+					await new Promise((resolve) => setTimeout(resolve, 500))
+					await this.page.close().catch((err) => {
+						console.log("Error closing local browser page:", err)
+					})
+				}
+				await this.browser?.close().catch((err) => {
+					console.log("Error closing local browser:", err)
+				})
 				console.log("closed local browser...")
-			}
 
+				// Additional cleanup for local browser processes
+				await this.killAllChromeBrowsers()
+			}
+		} catch (error) {
+			console.error("Error during browser cleanup:", error)
+		} finally {
+			// Always clean up references
 			this.browser = undefined
 			this.page = undefined
 			this.currentMousePosition = undefined

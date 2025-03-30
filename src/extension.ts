@@ -360,6 +360,16 @@ export function activate(context: vscode.ExtensionContext) {
 // This method is called when your extension is deactivated
 export function deactivate() {
 	telemetryService.shutdown()
+	Logger.log("Cline extension deactivating...")
+
+	// Ensure browser sessions are cleaned up
+	const provider = ClineProvider.getVisibleInstance()
+	if (provider) {
+		provider.cleanupBrowserSession().catch((error) => {
+			Logger.log("Error cleaning up browser session: " + error)
+		})
+	}
+
 	Logger.log("Cline extension deactivated")
 }
 
