@@ -23,6 +23,7 @@ import { McpHub } from "../../services/mcp/McpHub"
 import { searchWorkspaceFiles } from "../../services/search/file-search"
 import { telemetryService } from "../../services/telemetry/TelemetryService"
 import { ApiProvider, ModelInfo } from "../../shared/api"
+import { AutoApprovalSettings, DEFAULT_AUTO_APPROVAL_SETTINGS } from "../../shared/AutoApprovalSettings"
 import { ChatContent } from "../../shared/ChatContent"
 import { ChatSettings } from "../../shared/ChatSettings"
 import { ExtensionMessage, ExtensionState, Invoke, Platform } from "../../shared/ExtensionMessage"
@@ -944,6 +945,7 @@ export class Controller {
 			previousModeVsCodeLmModelSelector: newVsCodeLmModelSelector,
 			previousModeThinkingBudgetTokens: newThinkingBudgetTokens,
 			planActSeparateModelsSetting,
+			autoApprovalSettings: currentAutoApprovalSettings,
 		} = await getAllExtensionState(this.context)
 
 		const shouldSwitchModel = planActSeparateModelsSetting === true
@@ -1044,7 +1046,18 @@ export class Controller {
 			}
 		}
 
+		// Ensure auto-approval settings are properly preserved
+		const preservedSettings = {
+			...DEFAULT_AUTO_APPROVAL_SETTINGS,
+			...currentAutoApprovalSettings,
+			actions: {
+				...DEFAULT_AUTO_APPROVAL_SETTINGS.actions,
+				...(currentAutoApprovalSettings?.actions || {}),
+			},
+		}
+
 		await updateGlobalState(this.context, "chatSettings", chatSettings)
+		await updateGlobalState(this.context, "autoApprovalSettings", preservedSettings)
 		await this.postStateToWebview()
 
 		if (this.task) {
