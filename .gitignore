@@ -3,7 +3,8 @@ dist
 node_modules
 tmp
 .vscode-test/
-*.vsix
+# unhak
+# *.vsix
 
 .DS_Store
 
