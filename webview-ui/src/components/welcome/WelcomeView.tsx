@@ -32,7 +32,7 @@ const WelcomeView = memo(() => {
 	return (
 		<div className="fixed inset-0 p-0 flex flex-col">
 			<div className="h-full px-5 overflow-auto">
-				<h2>Hi, I'm Cline</h2>
+				<h2>Hi, I'm AI Platform Cline hahaha</h2>
 				<div className="flex justify-center my-5">
 					<ClineLogoWhite className="size-16" />
 				</div>
@@ -47,20 +47,22 @@ const WelcomeView = memo(() => {
 				</p>
 
 				<p className="text-[var(--vscode-descriptionForeground)]">
-					Sign up for an account to get started for free, or use an API key that provides access to models like Claude
-					3.7 Sonnet.
+					<VSCodeLink href="https://go/vibe" className="inline">
+						https://go/vibe
+					</VSCodeLink>
+					에서 자세한 내용 확인하세요.
 				</p>
 
-				<VSCodeButton appearance="primary" onClick={handleLogin} className="w-full mt-1">
+				{/* <VSCodeButton appearance="primary" onClick={handleLogin} className="w-full mt-1">
 					Get Started for Free
-				</VSCodeButton>
+				</VSCodeButton> */}
 
 				{!showApiOptions && (
 					<VSCodeButton
 						appearance="secondary"
 						onClick={() => setShowApiOptions(!showApiOptions)}
 						className="mt-2.5 w-full">
-						Use your own API key
+						Use your Vibe Platform API key
 					</VSCodeButton>
 				)}
 

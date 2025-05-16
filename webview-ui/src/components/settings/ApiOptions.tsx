@@ -304,12 +304,12 @@ const ApiOptions = ({
 						minWidth: 130,
 						position: "relative",
 					}}>
-					<VSCodeOption value="cline">Cline</VSCodeOption>
+					{/* <VSCodeOption value="cline">Cline</VSCodeOption>
 					<VSCodeOption value="openrouter">OpenRouter</VSCodeOption>
 					<VSCodeOption value="anthropic">Anthropic</VSCodeOption>
-					<VSCodeOption value="bedrock">Amazon Bedrock</VSCodeOption>
+					<VSCodeOption value="bedrock">Amazon Bedrock</VSCodeOption> */}
 					<VSCodeOption value="openai">OpenAI Compatible</VSCodeOption>
-					<VSCodeOption value="vertex">GCP Vertex AI</VSCodeOption>
+					{/* <VSCodeOption value="vertex">GCP Vertex AI</VSCodeOption>
 					<VSCodeOption value="gemini">Google Gemini</VSCodeOption>
 					<VSCodeOption value="deepseek">DeepSeek</VSCodeOption>
 					<VSCodeOption value="mistral">Mistral</VSCodeOption>
@@ -325,7 +325,7 @@ const ApiOptions = ({
 					<VSCodeOption value="litellm">LiteLLM</VSCodeOption>
 					<VSCodeOption value="asksage">AskSage</VSCodeOption>
 					<VSCodeOption value="xai">xAI</VSCodeOption>
-					<VSCodeOption value="sambanova">SambaNova</VSCodeOption>
+					<VSCodeOption value="sambanova">SambaNova</VSCodeOption> */}
 				</VSCodeDropdown>
 			</DropdownContainer>
 
@@ -1025,7 +1025,7 @@ const ApiOptions = ({
 			{selectedProvider === "openai" && (
 				<div>
 					<VSCodeTextField
-						value={apiConfiguration?.openAiBaseUrl || ""}
+						value={apiConfiguration?.openAiBaseUrl || "http://api.openai.svc.cluster.local/v1"}
 						style={{ width: "100%", marginBottom: 10 }}
 						type="url"
 						onInput={(e: any) => {
@@ -1048,10 +1048,16 @@ const ApiOptions = ({
 							debouncedRefreshOpenAiModels(apiConfiguration?.openAiBaseUrl, apiKey)
 						}}
 						placeholder="Enter API Key...">
-						<span style={{ fontWeight: 500 }}>API Key</span>
+						{/* <span style={{ fontWeight: 500 }}>API Key</span> */}
+						<span style={{ fontWeight: 500 }}>
+							API Key from{" "}
+							<a href="https://go/vibe" target="_blank" rel="noopener noreferrer">
+								https://go/vibe
+							</a>
+						</span>
 					</VSCodeTextField>
 					<VSCodeTextField
-						value={apiConfiguration?.openAiModelId || ""}
+						value={apiConfiguration?.openAiModelId || "auto"}
 						style={{ width: "100%", marginBottom: 10 }}
 						onInput={handleInputChange("openAiModelId")}
 						placeholder={"Enter Model ID..."}>
